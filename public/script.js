@@ -1,304 +1,281 @@
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('plugin-form');
-    const generateButton = document.getElementById('generate-button');
-    const apiResponseDiv = document.getElementById('api-response');
-    const apiResponseContent = document.getElementById('api-response-content');
-    const pluginPreviewDiv = document.getElementById('plugin-preview');
-    const pluginPreviewContent = document.getElementById('plugin-preview-content');
-    const savedConfigsDiv = document.getElementById('saved-configs');
-    const savedConfigsList = document.getElementById('saved-configs-list');
-    const addHeaderButton = document.getElementById('add-header-button');
-    const headerInputs = document.getElementById('header-inputs');
-    const generateApiKeyButton = document.getElementById('generate-api-key');
-    const apiKeyInput = document.getElementById('apiKey');
+'use strict';
 
-    let savedConfigs = JSON.parse(localStorage.getItem('savedConfigs')) || [];
+document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('plugin-form');
+    var generateButton = document.getElementById('generate-button');
+    var errorsBox = document.getElementById('form-errors');
+    var apiResponseDiv = document.getElementById('api-response');
+    var apiResponseContent = document.getElementById('api-response-content');
+    var pluginPreviewDiv = document.getElementById('plugin-preview');
+    var pluginPreviewContent = document.getElementById('plugin-preview-content');
+    var savedConfigsDiv = document.getElementById('saved-configs');
+    var savedConfigsList = document.getElementById('saved-configs-list');
+    var headerInputs = document.getElementById('header-inputs');
+    var apiKeyInput = document.getElementById('apiKey');
+    var STORAGE_KEY = 'savedConfigs';
+
+    var savedConfigs = readSavedConfigs();
     updateSavedConfigsList();
 
-    form.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        if (!validateForm()) {
-            return;
-        }
+    // ---------------------------------------------------------------- events
+
+    form.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        clearErrors();
         generateButton.disabled = true;
         generateButton.textContent = 'Generating...';
-
-        const formData = new FormData(form);
-        const data = Object.fromEntries(formData.entries());
-        data.visualizeData = formData.get('visualizeData') === 'on';
-        data.headers = getCustomHeaders();
-
         try {
-            const response = await fetch('/api/generate-plugin', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(data),
-            });
-
-            if (response.ok) {
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = `${data.pluginName}.zip`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                showToast('Plugin generated and downloaded successfully!');
-
-                // Save configuration
-                savedConfigs.push(data);
-                localStorage.setItem('savedConfigs', JSON.stringify(savedConfigs));
-                updateSavedConfigsList();
-            } else {
-                throw new Error('Failed to generate plugin');
+            var config = await collectConfig();
+            var response = await postJson('/api/generate-plugin', config);
+            if (!response.ok) {
+                showErrors(await readError(response));
+                return;
             }
+            var blob = await response.blob();
+            downloadBlob(blob, fileNameFrom(response, 'plugin.zip'));
+            showToast('Plugin generated and downloaded successfully!');
+            saveConfig(config);
         } catch (error) {
             console.error('Error generating plugin:', error);
-            showToast('Failed to generate plugin. Please try again.');
+            showErrors(['Failed to generate the plugin. Please try again.']);
         } finally {
             generateButton.disabled = false;
             generateButton.textContent = 'Generate Plugin';
         }
     });
 
-    addHeaderButton.addEventListener('click', function() {
-        addCustomHeader();
-    });
-
+    document.getElementById('add-header-button').addEventListener('click', function () { addCustomHeader('', ''); });
     document.getElementById('test-api-button').addEventListener('click', testApi);
     document.getElementById('generate-preview-button').addEventListener('click', generatePreview);
-
-    generateApiKeyButton.addEventListener('click', function() {
-        const apiKey = generateRandomApiKey();
-        apiKeyInput.value = apiKey;
+    document.getElementById('save-config-button').addEventListener('click', async function () {
+        clearErrors();
+        saveConfig(await collectConfig());
+        showToast('Configuration saved (without the API key).');
+    });
+    document.getElementById('generate-api-key').addEventListener('click', function () {
+        apiKeyInput.value = generateRandomApiKey();
     });
 
+    // ---------------------------------------------------------------- actions
+
     async function testApi() {
-        const apiUrl = document.getElementById('apiUrl').value;
-        const apiMethod = document.querySelector('input[name="apiMethod"]:checked').value;
-        const apiKey = document.getElementById('apiKey').value;
-        const headers = getCustomHeaders();
-
+        clearErrors();
+        var config = await collectConfig();
         try {
-            const response = await fetch('/api/test-api', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ apiUrl, apiMethod, apiKey, headers }),
+            var response = await postJson('/api/test-api', {
+                apiUrl: config.apiUrl, apiMethod: config.apiMethod, apiKey: config.apiKey, headers: config.headers,
             });
-
-            const data = await response.json();
-            apiResponseContent.textContent = JSON.stringify(data, null, 2);
+            var data = await response.json();
+            if (!response.ok) {
+                showErrors([data.error].concat(data.details || []));
+                return;
+            }
+            apiResponseContent.textContent = 'HTTP ' + data.status + '\n\n' +
+                (typeof data.body === 'string' ? data.body : JSON.stringify(data.body, null, 2));
             apiResponseDiv.classList.remove('hidden');
         } catch (error) {
             console.error('Error testing API:', error);
-            apiResponseContent.textContent = 'Error testing API. Please check your configuration.';
-            apiResponseDiv.classList.remove('hidden');
+            showErrors(['Error testing the API. Please check your configuration.']);
         }
     }
 
-    function generatePreview() {
-        const platform = document.getElementById('platform').value;
-        const pluginName = document.getElementById('pluginName').value;
-        const description = document.getElementById('description').value;
-        const apiUrl = document.getElementById('apiUrl').value;
-        const apiMethod = document.querySelector('input[name="apiMethod"]:checked').value;
-        const apiKey = document.getElementById('apiKey').value;
-        const headers = getCustomHeaders();
-
-        let previewCode = '';
-
-        switch (platform) {
-            case 'wordpress':
-                previewCode = `
-<?php
-/**
- * Plugin Name: ${pluginName}
- * Description: ${description}
- * Version: 1.0
- * Author: API Plugin Generator
- */
-
-function ${pluginName.toLowerCase().replace(/\s/g, '_')}_fetch_data() {
-    $api_url = '${apiUrl}';
-    $args = array(
-        'headers' => array(
-            'Authorization' => 'Bearer ${apiKey}'
-            ${Object.entries(headers).map(([key, value]) => `,'${key}' => '${value}'`).join('\n            ')}
-        )
-    );
-    
-    $response = wp_remote_${apiMethod.toLowerCase()}($api_url, $args);
-    
-    if (is_wp_error($response)) {
-        return 'Error fetching data';
-    }
-    
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body);
-    
-    return $data;
-}
-
-// Use the function like this:
-// $api_data = ${pluginName.toLowerCase().replace(/\s/g, '_')}_fetch_data();
-`;
-                break;
-            case 'chrome':
-            case 'firefox':
-                previewCode = `
-// manifest.json
-{
-    "manifest_version": 2,
-    "name": "${pluginName}",
-    "version": "1.0",
-    "description": "${description}",
-    "permissions": ["${apiUrl}"],
-    "browser_action": {
-        "default_popup": "popup.html"
-    }
-}
-
-// popup.js
-document.addEventListener('DOMContentLoaded', function() {
-    fetch('${apiUrl}', {
-        method: '${apiMethod}',
-        headers: {
-            'Authorization': 'Bearer ${apiKey}'
-            ${Object.entries(headers).map(([key, value]) => `,'${key}': '${value}'`).join('\n            ')}
+    // The preview is produced by the server, so it is exactly what the download contains.
+    async function generatePreview() {
+        clearErrors();
+        try {
+            var response = await postJson('/api/preview-plugin', await collectConfig());
+            var data = await response.json();
+            if (!response.ok) {
+                showErrors([data.error].concat(data.details || []));
+                return;
+            }
+            pluginPreviewContent.replaceChildren();
+            data.files.forEach(function (file) {
+                var title = document.createElement('h3');
+                title.textContent = file.path;
+                var pre = document.createElement('pre');
+                pre.textContent = file.content;
+                pluginPreviewContent.append(title, pre);
+            });
+            pluginPreviewDiv.classList.remove('hidden');
+        } catch (error) {
+            console.error('Error generating the preview:', error);
+            showErrors(['Failed to generate the preview.']);
         }
-    })
-    .then(response => response.json())
-    .then(data => {
-        document.getElementById('result').innerText = JSON.stringify(data, null, 2);
-    })
-    .catch(error => {
-        document.getElementById('result').innerText = 'Error: ' + error.message;
-    });
-});
-`;
-                break;
-        }
+    }
 
-        pluginPreviewContent.textContent = previewCode;
-        pluginPreviewDiv.classList.remove('hidden');
+    // ---------------------------------------------------------------- form data
+
+    async function collectConfig() {
+        var checked = document.querySelector('input[name="apiMethod"]:checked');
+        var config = {
+            platform: document.getElementById('platform').value,
+            pluginName: document.getElementById('pluginName').value,
+            description: document.getElementById('description').value.replace(/\s+/g, ' ').trim(),
+            apiUrl: document.getElementById('apiUrl').value,
+            apiMethod: checked ? checked.value : 'GET',
+            apiKey: apiKeyInput.value,
+            headers: getCustomHeaders(),
+            visualizeData: document.getElementById('visualizeData').checked,
+        };
+        var logo = document.getElementById('logo').files[0];
+        if (logo) config.logoPng = await fileToBase64(logo);
+        return config;
+    }
+
+    function getCustomHeaders() {
+        var headers = {};
+        headerInputs.querySelectorAll('.header-input').forEach(function (row) {
+            var name = row.querySelector('input[name="headerName[]"]').value.trim();
+            var value = row.querySelector('input[name="headerValue[]"]').value;
+            if (name && value) headers[name] = value;
+        });
+        return headers;
+    }
+
+    // Built with the DOM API, never with innerHTML: header names and values are user text.
+    function addCustomHeader(name, value) {
+        var row = document.createElement('div');
+        row.className = 'header-input';
+        var nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.placeholder = 'Header Name';
+        nameInput.name = 'headerName[]';
+        nameInput.setAttribute('aria-label', 'Header name');
+        nameInput.value = name;
+        var valueInput = document.createElement('input');
+        valueInput.type = 'text';
+        valueInput.placeholder = 'Header Value';
+        valueInput.name = 'headerValue[]';
+        valueInput.setAttribute('aria-label', 'Header value');
+        valueInput.value = value;
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'remove-header';
+        remove.textContent = 'Remove';
+        remove.addEventListener('click', function () { row.remove(); });
+        row.append(nameInput, valueInput, remove);
+        headerInputs.appendChild(row);
+    }
+
+    function fileToBase64(file) {
+        return new Promise(function (resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
+            reader.onerror = function () { reject(reader.error); };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // ---------------------------------------------------------------- saved configurations (never the API key)
+
+    function readSavedConfigs() {
+        try {
+            var parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveConfig(config) {
+        var copy = Object.assign({}, config);
+        delete copy.apiKey;
+        delete copy.logoPng;
+        savedConfigs.push(copy);
+        savedConfigs = savedConfigs.slice(-20);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedConfigs)); } catch (e) { /* storage unavailable */ }
+        updateSavedConfigsList();
     }
 
     function updateSavedConfigsList() {
-        savedConfigsList.innerHTML = '';
-        savedConfigs.forEach((config, index) => {
-            const li = document.createElement('li');
-            li.textContent = `${config.pluginName} (${config.platform})`;
-            li.addEventListener('click', () => loadSavedConfig(index));
+        savedConfigsList.replaceChildren();
+        savedConfigs.forEach(function (config, index) {
+            var li = document.createElement('li');
+            li.textContent = config.pluginName + ' (' + config.platform + ')';
+            li.tabIndex = 0;
+            li.addEventListener('click', function () { loadSavedConfig(index); });
+            li.addEventListener('keydown', function (e) { if (e.key === 'Enter') loadSavedConfig(index); });
             savedConfigsList.appendChild(li);
         });
         savedConfigsDiv.classList.toggle('hidden', savedConfigs.length === 0);
     }
 
     function loadSavedConfig(index) {
-        const config = savedConfigs[index];
-        document.getElementById('platform').value = config.platform;
-        document.getElementById('pluginName').value = config.pluginName;
-        document.getElementById('description').value = config.description;
-        document.getElementById('apiUrl').value = config.apiUrl;
-        document.querySelector(`input[name="apiMethod"][value="${config.apiMethod}"]`).checked = true;
-        document.getElementById('apiKey').value = config.apiKey;
-        document.getElementById('visualizeData').checked = config.visualizeData;
+        var config = savedConfigs[index];
+        if (!config) return;
+        document.getElementById('platform').value = config.platform || 'wordpress';
+        document.getElementById('pluginName').value = config.pluginName || '';
+        document.getElementById('description').value = config.description || '';
+        document.getElementById('apiUrl').value = config.apiUrl || '';
+        var method = document.querySelector('input[name="apiMethod"][value="' + (config.apiMethod === 'POST' ? 'POST' : 'GET') + '"]');
+        if (method) method.checked = true;
+        apiKeyInput.value = '';
+        document.getElementById('visualizeData').checked = Boolean(config.visualizeData);
+        headerInputs.replaceChildren();
+        Object.entries(config.headers || {}).forEach(function (entry) { addCustomHeader(entry[0], String(entry[1])); });
+    }
 
-        // Clear existing custom headers
-        headerInputs.innerHTML = '';
+    // ---------------------------------------------------------------- helpers
 
-        // Add saved custom headers
-        if (config.headers) {
-            Object.entries(config.headers).forEach(([key, value]) => {
-                addCustomHeader(key, value);
-            });
+    function postJson(url, body) {
+        return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    }
+
+    async function readError(response) {
+        try {
+            var data = await response.json();
+            return [data.error].concat(data.details || []);
+        } catch (e) {
+            return ['The server answered with an error (HTTP ' + response.status + ').'];
         }
     }
 
-    function getCustomHeaders() {
-        const headers = {};
-        const headerInputs = document.querySelectorAll('.header-input');
-        headerInputs.forEach(input => {
-            const name = input.querySelector('input[name="headerName[]"]').value;
-            const value = input.querySelector('input[name="headerValue[]"]').value;
-            if (name && value) {
-                headers[name] = value;
-            }
-        });
-        return headers;
+    function fileNameFrom(response, fallback) {
+        var header = response.headers.get('Content-Disposition') || '';
+        var match = header.match(/filename="([A-Za-z0-9._-]+)"/);
+        return match ? match[1] : fallback;
     }
 
-    function addCustomHeader(name = '', value = '') {
-        const headerDiv = document.createElement('div');
-        headerDiv.className = 'header-input';
-        headerDiv.innerHTML = `
-            <input type="text" placeholder="Header Name" name="headerName[]" value="${name}">
-            <input type="text" placeholder="Header Value" name="headerValue[]" value="${value}">
-            <button type="button" class="remove-header">Remove</button>
-        `;
-        headerInputs.appendChild(headerDiv);
+    function downloadBlob(blob, name) {
+        var url = window.URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.style.display = 'none';
+        link.href = url;
+        link.download = name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { window.URL.revokeObjectURL(url); }, 4000);
+    }
 
-        headerDiv.querySelector('.remove-header').addEventListener('click', function() {
-            headerInputs.removeChild(headerDiv);
+    function showErrors(messages) {
+        errorsBox.replaceChildren();
+        messages.filter(Boolean).forEach(function (message) {
+            var p = document.createElement('p');
+            p.textContent = message;
+            errorsBox.appendChild(p);
         });
+        errorsBox.classList.remove('hidden');
+    }
+
+    function clearErrors() {
+        errorsBox.replaceChildren();
+        errorsBox.classList.add('hidden');
     }
 
     function showToast(message) {
-        const toast = document.getElementById('toast');
+        var toast = document.getElementById('toast');
         toast.textContent = message;
         toast.classList.add('show');
-        setTimeout(() => {
-            toast.classList.remove('show');
-        }, 3000);
+        setTimeout(function () { toast.classList.remove('show'); }, 3000);
     }
 
-    function validateForm() {
-        let isValid = true;
-        const fields = ['platform', 'pluginName', 'description', 'apiUrl', 'apiKey'];
-        
-        fields.forEach(field => {
-            const input = document.getElementById(field);
-            if (!input.value.trim()) {
-                input.classList.add('error');
-                isValid = false;
-            } else {
-                input.classList.remove('error');
-            }
-        });
-
-        const apiUrl = document.getElementById('apiUrl');
-        if (apiUrl.value && !isValidUrl(apiUrl.value)) {
-            apiUrl.classList.add('error');
-            isValid = false;
-        }
-
-        return isValid;
-    }
-
-    function isValidUrl(string) {
-        try {
-            new URL(string);
-            return true;
-        } catch (_) {
-            return false;
-        }
-    }
-
+    // Uses the browser's cryptographic random generator (Math.random is predictable).
     function generateRandomApiKey() {
-        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        let result = '';
-        for (let i = 0; i < 32; i++) {
-            result += characters.charAt(Math.floor(Math.random() * characters.length));
-        }
-        return result;
+        var characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        var bytes = new Uint32Array(32);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, function (n) { return characters[n % characters.length]; }).join('');
     }
 });
-
-
-

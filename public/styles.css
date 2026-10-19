@@ -54,9 +54,12 @@ form {
 /* Align API Key input and Generate button */
 .form-group.api-key-group {
     display: flex; /* Use flexbox for horizontal alignment */
+    flex-wrap: wrap; /* the hint goes on its own line */
     align-items: center; /* Vertically center align input and button */
     gap: 10px; /* Space between the input and button */
 }
+.api-key-group label { flex: 0 0 100%; margin-bottom: 0; }
+.api-key-group small { flex: 0 0 100%; margin-top: 0; }
 
 label {
     display: block;
@@ -133,7 +136,8 @@ button:disabled {
 
 
 #apiKey {
-    flex: 1; /* Input takes up the remaining space */
+    flex: 1 1 200px; /* Input takes up the remaining space */
+    min-width: 0;
     padding: 10px;
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -142,7 +146,7 @@ button:disabled {
 }
 
 #generate-api-key {
-    background-color: #589b63;
+    background-color: #2f6b3b;
     color: #fff;
     padding: 10px 20px;
     border: none;
@@ -252,3 +256,11 @@ pre {
 
 
 
+
+/* hints, error box and preview headings added with the security rewrite */
+small { display: block; margin-top: 4px; color: #2f3440; font-size: 0.85rem; }
+fieldset.radio-group { border: 0; padding: 0; margin: 0; }
+fieldset.radio-group legend { font-weight: bold; margin-bottom: 6px; padding: 0; }
+#form-errors { margin: 12px 0; padding: 10px 14px; border: 1px solid #b3261e; border-radius: 6px; background: #fdecea; color: #7a1710; }
+#form-errors p { margin: 4px 0; }
+#plugin-preview h3 { margin: 14px 0 4px; font-size: 1rem; }

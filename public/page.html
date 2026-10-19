@@ -4,17 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API Plugin Generator</title>
+    <meta name="description" content="Generate a WordPress plugin, a Chrome extension or a Firefox extension that shows the data of an API.">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <img src="/logo.svg" alt="API Plugin Generator Logo" class="logo">
+            <img src="/logo.svg" alt="" class="logo">
         </header>
         <main>
             <h1>API Plugin Generator</h1>
-            <p>Generate a plugin for your chosen platform using API data.</p>
-            <form id="plugin-form">
+            <p>Generate a plugin for your chosen platform that shows the data of an API.</p>
+            <noscript><p>This tool needs JavaScript.</p></noscript>
+
+            <div id="form-errors" class="hidden" role="alert"></div>
+
+            <form id="plugin-form" novalidate>
                 <div class="form-group">
                     <label for="platform">Platform</label>
                     <select id="platform" name="platform" required>
@@ -25,53 +31,38 @@
                 </div>
                 <div class="form-group">
                     <label for="pluginName">Plugin Name</label>
-                    <input type="text" id="pluginName" name="pluginName" required>
+                    <input type="text" id="pluginName" name="pluginName" required minlength="2" maxlength="60" aria-describedby="pluginName-hint">
+                    <small id="pluginName-hint">Letters, numbers, spaces and . _ - ( ) only.</small>
                 </div>
                 <div class="form-group">
                     <label for="description">Description</label>
-                    <textarea id="description" name="description" required></textarea>
+                    <textarea id="description" name="description" maxlength="132" aria-describedby="description-hint"></textarea>
+                    <small id="description-hint">One line, up to 132 characters.</small>
                 </div>
                 <div class="form-group">
-                    <label for="logo">Plugin Logo</label>
-                    <input type="file" id="logo" name="logo" accept="image/*">
+                    <label for="logo">Plugin Logo (optional)</label>
+                    <input type="file" id="logo" name="logo" accept="image/png" aria-describedby="logo-hint">
+                    <small id="logo-hint">PNG, up to 256 KB. Used as the extension icon.</small>
                 </div>
-                
-
-                <div class="form-group">
-                    <label>Functionality</label>
-                    <div class="radio-group">
-                        <label>
-                            <input type="radio" name="functionality" value="fetchData" required checked> Fetch Data
-                        </label>
-                        <label>
-                            <input type="radio" name="functionality" value="chatGroup" required> Chat Group
-                        </label>
-                    </div>
-                </div>
-
 
                 <div class="form-group">
                     <label for="apiUrl">API URL</label>
-                    <input type="url" id="apiUrl" name="apiUrl" required>
+                    <input type="url" id="apiUrl" name="apiUrl" required placeholder="https://api.example.com/v1/items">
                 </div>
                 <div class="form-group">
-                    <label>API Method</label>
-                    <div class="radio-group">
-                        <label>
-                            <input type="radio" name="apiMethod" value="GET" required> GET
-                        </label>
-                        <label>
-                            <input type="radio" name="apiMethod" value="POST" required> POST
-                        </label>
-                    </div>
+                    <fieldset class="radio-group">
+                        <legend>API Method</legend>
+                        <label><input type="radio" name="apiMethod" value="GET" checked> GET</label>
+                        <label><input type="radio" name="apiMethod" value="POST"> POST</label>
+                    </fieldset>
                 </div>
-                
+
                 <div class="form-group api-key-group">
-                    <label for="apiKey">API Key</label>
-                    <input type="text" id="apiKey" name="apiKey" required>
-                    <button type="button" id="generate-api-key">Generate API Key</button>
+                    <label for="apiKey">API Key (optional)</label>
+                    <input type="text" id="apiKey" name="apiKey" autocomplete="off" aria-describedby="apiKey-hint">
+                    <button type="button" id="generate-api-key">Random key</button>
+                    <small id="apiKey-hint">Sent as a Bearer token. It is written in plain text inside the plugin you download, and it is never saved in this browser.</small>
                 </div>
-                
 
                 <div id="header-inputs"></div>
                 <button type="button" id="add-header-button">Add Custom Header</button>
@@ -94,24 +85,16 @@
             </div>
             <div id="plugin-preview" class="hidden">
                 <h2>Plugin Preview:</h2>
-                <pre id="plugin-preview-content"></pre>
+                <div id="plugin-preview-content"></div>
             </div>
             <div id="saved-configs" class="hidden">
                 <h2>Saved Configurations:</h2>
+                <p><small>The API key is not saved.</small></p>
                 <ul id="saved-configs-list"></ul>
             </div>
         </main>
     </div>
-    <div id="toast" class="toast"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="/script.js"></script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
